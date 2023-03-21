@@ -16,10 +16,15 @@ spring:
     database-platform: org.hibernate.dialect.MySQL5Dialect
   application:
     name: Credit-Card-Transaction-Parser
+  main:
+    banner-mode: off
 
 logging:
   level:
     credit.card.transactions.backend: debug
+    root: info
+  file:
+    name: logs/credit-card-log.log
 
 server:
   port: 4040
