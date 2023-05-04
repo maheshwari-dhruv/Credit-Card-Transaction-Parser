@@ -1,6 +1,7 @@
 package com.example.groupcasestudy.services.impl;
 
 import com.example.groupcasestudy.modals.CreditCardData;
+import com.example.groupcasestudy.modals.requests.ReadDataRequest;
 import com.example.groupcasestudy.services.FeederService;
 import com.opencsv.bean.CsvToBean;
 import com.opencsv.bean.CsvToBeanBuilder;
@@ -9,12 +10,9 @@ import com.opencsv.exceptions.CsvException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,8 +21,91 @@ public class FeederServiceImpl implements FeederService {
     List<CreditCardData> creditCardData = new ArrayList<>();
 
     @Override
-    public List<CreditCardData> readDataFromCSV() {
-        return creditCardData;
+    public List<CreditCardData> readData(ReadDataRequest readDataRequest) {
+        List<CreditCardData> paginatedList = new ArrayList<>(creditCardData);
+
+        if (readDataRequest.getShowAllData()) {
+            return readAllData(paginatedList, readDataRequest.getSortDataRequest(), readDataRequest.getFilterDataRequest());
+        }
+
+        return readUpdatedData(paginatedList, readDataRequest.getPaginatedRequest(), readDataRequest.getSortDataRequest(), readDataRequest.getFilterDataRequest());
+    }
+
+    private List<CreditCardData> readUpdatedData(List<CreditCardData> paginatedList, ReadDataRequest.PaginatedRequest paginatedRequest, ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest) {
+        // apply pagination
+        int startIndex = paginatedRequest.getPage() * paginatedRequest.getSize();
+        int endIndex = Math.min(startIndex + paginatedRequest.getSize(), paginatedList.size());
+        int totalPages = paginatedList.size() / paginatedRequest.getSize();
+        System.out.println(totalPages);
+        List<CreditCardData> paginatedData = paginatedList.subList(startIndex, endIndex);
+
+        // apply filter & sorting if present
+        if ((filterDataRequest.getFilterBy() == null || filterDataRequest.getFilterBy().isEmpty()) && (sortDataRequest.getSortBy() == null || sortDataRequest.getSortBy().isEmpty())) {
+            return paginatedData;
+        }
+
+        if (filterDataRequest.getFilterBy() != null && !filterDataRequest.getFilterBy().isEmpty()) {
+            paginatedData = filterList(paginatedList, filterDataRequest);
+        }
+
+        if (sortDataRequest.getSortBy() != null && !sortDataRequest.getSortBy().isEmpty()) {
+            sortList(paginatedList, sortDataRequest);
+        }
+
+        return paginatedData;
+    }
+
+    private List<CreditCardData> readAllData(List<CreditCardData> paginatedList, ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest) {
+        // apply filter & sorting if present
+        if ((filterDataRequest.getFilterBy() == null || filterDataRequest.getFilterBy().isEmpty()) && (sortDataRequest.getSortBy() == null || sortDataRequest.getSortBy().isEmpty())) {
+            return paginatedList;
+        }
+
+        if (filterDataRequest.getFilterBy() != null && !filterDataRequest.getFilterBy().isEmpty()) {
+            paginatedList = filterList(paginatedList, filterDataRequest);
+        }
+
+        if (sortDataRequest.getSortBy() != null && !sortDataRequest.getSortBy().isEmpty()) {
+            sortList(paginatedList, sortDataRequest);
+        }
+
+        return paginatedList;
+    }
+
+    private List<CreditCardData> filterList(List<CreditCardData> paginatedList, ReadDataRequest.FilterDataRequest filterDataRequest) {
+        List<CreditCardData> filteredList = new ArrayList<>();
+        if ("MERCHANT_CITY".equalsIgnoreCase(filterDataRequest.getFilterBy())) {
+            filteredList = paginatedList.stream()
+                    .filter(d -> d.getMerchantCity().equalsIgnoreCase(filterDataRequest.getCity()))
+                    .toList();
+        } else if ("AMOUNT".equalsIgnoreCase(filterDataRequest.getFilterBy())) {
+            filteredList = paginatedList.stream()
+                    .filter(d -> d.getAmount() <= filterDataRequest.getEndingAmount() && d.getAmount() >= filterDataRequest.getStartingAmount())
+                    .toList();
+        } else if ("CURRENCY_CODE".equalsIgnoreCase(filterDataRequest.getFilterBy())) {
+            filteredList = paginatedList.stream()
+                    .filter(d -> d.getCurrencyCode().equalsIgnoreCase(filterDataRequest.getCurrencyCode()))
+                    .toList();
+        } else if ("TRANSACTION_STATUS".equalsIgnoreCase(filterDataRequest.getFilterBy())) {
+            filteredList = paginatedList.stream()
+                    .filter(d -> d.getTransactionStatus().equalsIgnoreCase(filterDataRequest.getTransactionStatus()))
+                    .toList();
+        } else if ("CARD_TYPE".equalsIgnoreCase(filterDataRequest.getFilterBy())) {
+            filteredList = paginatedList.stream()
+                    .filter(d -> d.getCardType().equalsIgnoreCase(filterDataRequest.getCardType()))
+                    .toList();
+        }
+
+        return filteredList;
+    }
+
+    private void sortList(List<CreditCardData> paginatedList, ReadDataRequest.SortDataRequest sortDataRequest) {
+        if ("AMOUNT".equalsIgnoreCase(sortDataRequest.getSortBy())) {
+            paginatedList.sort((s1, s2) -> {
+                int comparison = s1.getAmount().compareTo(s2.getAmount());
+                return "DESC".equalsIgnoreCase(sortDataRequest.getSortDirection()) ? -comparison : comparison;
+            });
+        }
     }
 
     @Override
@@ -81,4 +162,6 @@ public class FeederServiceImpl implements FeederService {
 
         return originalFilename + " " + contentType + " " + size;
     }
+
+
 }
