@@ -1,12 +1,12 @@
 package com.example.groupcasestudy.controllers;
 
 import com.example.groupcasestudy.modals.CreditCardData;
+import com.example.groupcasestudy.modals.requests.ReadDataRequest;
 import com.example.groupcasestudy.services.FeederService;
 import jakarta.annotation.Nullable;
 import lombok.AllArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.service.annotation.PostExchange;
 
 import java.util.List;
 
@@ -17,9 +17,9 @@ public class FeederServiceController {
 
     private final FeederService feederService;
 
-    @GetMapping("/read-csv")
-    public List<CreditCardData> readCSVData() {
-        return feederService.readDataFromCSV();
+    @GetMapping("/read-all-data")
+    public List<CreditCardData> readAllData(@RequestBody ReadDataRequest readDataRequest) {
+        return feederService.readData(readDataRequest);
     }
 
     @PostMapping("/upload-csv-file")
