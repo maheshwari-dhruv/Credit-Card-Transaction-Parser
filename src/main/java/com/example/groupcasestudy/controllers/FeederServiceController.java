@@ -5,6 +5,7 @@ import com.example.groupcasestudy.modals.requests.ReadDataRequest;
 import com.example.groupcasestudy.services.FeederService;
 import jakarta.annotation.Nullable;
 import lombok.AllArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,7 +24,7 @@ public class FeederServiceController {
     }
 
     @PostMapping("/upload-csv-file")
-    public String uploadCSVFile(@RequestParam(value = "file") @Nullable MultipartFile file) {
+    public ResponseEntity<Object> uploadCSVFile(@RequestParam(value = "file") @Nullable MultipartFile file) {
         return feederService.uploadFile(file);
     }
 }
