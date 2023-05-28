@@ -1,12 +1,18 @@
 package com.example.groupcasestudy.services.impl;
 
 import com.example.groupcasestudy.modals.CreditCardData;
+import com.example.groupcasestudy.modals.errors.ErrorResponse;
 import com.example.groupcasestudy.modals.requests.ReadDataRequest;
+import com.example.groupcasestudy.modals.responses.BasicResponse;
+import com.example.groupcasestudy.modals.responses.UploadCSVResponse;
 import com.example.groupcasestudy.services.FeederService;
+import com.example.groupcasestudy.validations.UploadCSVFileServiceValidation;
 import com.opencsv.bean.CsvToBean;
 import com.opencsv.bean.CsvToBeanBuilder;
 import com.opencsv.bean.CsvToBeanFilter;
 import com.opencsv.exceptions.CsvException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,7 +30,7 @@ public class FeederServiceImpl implements FeederService {
     public List<CreditCardData> readData(ReadDataRequest readDataRequest) {
         List<CreditCardData> paginatedList = new ArrayList<>(creditCardData);
 
-        if (readDataRequest.getShowAllData()) {
+        if (Boolean.TRUE.equals(readDataRequest.getShowAllData())) {
             return readAllData(paginatedList, readDataRequest.getSortDataRequest(), readDataRequest.getFilterDataRequest());
         }
 
@@ -32,44 +38,34 @@ public class FeederServiceImpl implements FeederService {
     }
 
     private List<CreditCardData> readUpdatedData(List<CreditCardData> paginatedList, ReadDataRequest.PaginatedRequest paginatedRequest, ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest) {
-        // apply pagination
-        int startIndex = paginatedRequest.getPage() * paginatedRequest.getSize();
-        int endIndex = Math.min(startIndex + paginatedRequest.getSize(), paginatedList.size());
-        int totalPages = paginatedList.size() / paginatedRequest.getSize();
-        System.out.println(totalPages);
-        List<CreditCardData> paginatedData = paginatedList.subList(startIndex, endIndex);
+        List<CreditCardData> paginatedData = paginatedList(paginatedList, paginatedRequest);
+        return getCreditCardData(sortDataRequest, filterDataRequest, paginatedData);
+    }
 
-        // apply filter & sorting if present
-        if ((filterDataRequest.getFilterBy() == null || filterDataRequest.getFilterBy().isEmpty()) && (sortDataRequest.getSortBy() == null || sortDataRequest.getSortBy().isEmpty())) {
+    private List<CreditCardData> readAllData(List<CreditCardData> paginatedList, ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest) {
+        return getCreditCardData(sortDataRequest, filterDataRequest, paginatedList);
+    }
+
+    private List<CreditCardData> getCreditCardData(ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest, List<CreditCardData> paginatedData) {
+        if (UploadCSVFileServiceValidation.checkForFilterByAndSortBy(filterDataRequest.getFilterBy(), sortDataRequest.getSortBy())) {
             return paginatedData;
         }
 
-        if (filterDataRequest.getFilterBy() != null && !filterDataRequest.getFilterBy().isEmpty()) {
-            paginatedData = filterList(paginatedList, filterDataRequest);
+        if (sortDataRequest.getSortBy() != null && !sortDataRequest.getSortBy().isEmpty()) {
+            sortList(paginatedData, sortDataRequest);
         }
 
-        if (sortDataRequest.getSortBy() != null && !sortDataRequest.getSortBy().isEmpty()) {
-            sortList(paginatedList, sortDataRequest);
+        if (filterDataRequest.getFilterBy() != null && !filterDataRequest.getFilterBy().isEmpty()) {
+            paginatedData = filterList(paginatedData, filterDataRequest);
         }
 
         return paginatedData;
     }
 
-    private List<CreditCardData> readAllData(List<CreditCardData> paginatedList, ReadDataRequest.SortDataRequest sortDataRequest, ReadDataRequest.FilterDataRequest filterDataRequest) {
-        // apply filter & sorting if present
-        if ((filterDataRequest.getFilterBy() == null || filterDataRequest.getFilterBy().isEmpty()) && (sortDataRequest.getSortBy() == null || sortDataRequest.getSortBy().isEmpty())) {
-            return paginatedList;
-        }
-
-        if (filterDataRequest.getFilterBy() != null && !filterDataRequest.getFilterBy().isEmpty()) {
-            paginatedList = filterList(paginatedList, filterDataRequest);
-        }
-
-        if (sortDataRequest.getSortBy() != null && !sortDataRequest.getSortBy().isEmpty()) {
-            sortList(paginatedList, sortDataRequest);
-        }
-
-        return paginatedList;
+    private List<CreditCardData> paginatedList(List<CreditCardData> paginatedList, ReadDataRequest.PaginatedRequest paginatedRequest) {
+        int startIndex = paginatedRequest.getPage() * paginatedRequest.getSize();
+        int endIndex = Math.min(startIndex + paginatedRequest.getSize(), paginatedList.size());
+        return paginatedList.subList(startIndex, endIndex);
     }
 
     private List<CreditCardData> filterList(List<CreditCardData> paginatedList, ReadDataRequest.FilterDataRequest filterDataRequest) {
@@ -109,25 +105,24 @@ public class FeederServiceImpl implements FeederService {
     }
 
     @Override
-    public String uploadFile(MultipartFile file) {
+    public ResponseEntity<Object> uploadFile(MultipartFile file) {
 
-        if (file == null) {
-            return "Request Header - File is null";
-        }
+        // checking if file sent in header is null
+        ResponseEntity<Object> nullErrorResponse = checkNull(UploadCSVFileServiceValidation.checkFileIsNull(file), HttpStatus.NOT_FOUND, "No File found");
+        if (nullErrorResponse != null) return nullErrorResponse;
 
         String originalFilename = file.getOriginalFilename();
         String contentType = file.getContentType();
         long size = file.getSize();
+        List<CsvException> errors = new ArrayList<>();
 
         // checking for mime type
-        if (contentType != null && !contentType.matches("^text/(csv|tsv)$")) {
-            return "File must be in CSV or TSV format.";
-        }
+        ResponseEntity<Object> mimeErrorResponse = checkMIMEorSize(UploadCSVFileServiceValidation.checkFileMIMEType(contentType), HttpStatus.NOT_ACCEPTABLE, "File can only be in CSV or TSV");
+        if (mimeErrorResponse != null) return mimeErrorResponse;
 
         // checking the size of file
-        if (size < 1024 || size > 2097152) {
-            return "File size must be between 1 KiB and 2 MiB.";
-        }
+        ResponseEntity<Object> sizeErrorResponse = checkMIMEorSize(UploadCSVFileServiceValidation.checkFileSize(size), HttpStatus.NOT_ACCEPTABLE, "File size must be between 1 KiB and 2 MiB.");
+        if (sizeErrorResponse != null) return sizeErrorResponse;
 
         try (Reader reader = new InputStreamReader(file.getInputStream())) {
             CsvToBeanFilter filter = line -> {
@@ -147,21 +142,49 @@ public class FeederServiceImpl implements FeederService {
 
             creditCardData = csvToBean.parse();
 
-            List<CsvException> errors = csvToBean.getCapturedExceptions();
-            if (!errors.isEmpty()) {
-                // handle errors here
-                for (Exception e : errors) {
-                    System.err.println("Error parsing CSV: " + e.getMessage());
-                }
-            }
+            errors = csvToBean.getCapturedExceptions();
 
-            System.out.println(creditCardData);
         } catch (IOException ex) {
             ex.printStackTrace();
         }
 
-        return originalFilename + " " + contentType + " " + size;
+        BasicResponse basicResponse = BasicResponse.builder()
+                .statusCode(HttpStatus.OK.value())
+                .message("Data fetch successfully from csv file")
+                .build();
+
+        UploadCSVResponse uploadCSVResponse = UploadCSVResponse.builder()
+                .basicResponse(basicResponse)
+                .fileName(originalFilename)
+                .fileType(contentType)
+                .fileSize(size)
+                .exceptions(errors)
+                .build();
+
+        return ResponseEntity.ok(uploadCSVResponse);
     }
 
+    private ResponseEntity<Object> checkMIMEorSize(boolean contentType, HttpStatus notAcceptable, String message) {
+        if (contentType) {
+            ErrorResponse errorResponse = ErrorResponse.builder()
+                    .statusCode(notAcceptable.value())
+                    .message(message)
+                    .build();
 
+            return ResponseEntity.ok(errorResponse);
+        }
+        return null;
+    }
+
+    private ResponseEntity<Object> checkNull(boolean file, HttpStatus notFound, String No_File_found) {
+        if (file) {
+            ErrorResponse errorResponse = ErrorResponse.builder()
+                    .statusCode(notFound.value())
+                    .message(No_File_found)
+                    .build();
+
+            return ResponseEntity.ok(errorResponse);
+        }
+        return null;
+    }
 }
